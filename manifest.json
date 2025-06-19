@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "Отчеты Bnovo",
+  "version": "1.0",
+  "description": "Расширение добавляет пункты 'Задание для горничных' и 'Задание завтраки' на сайте Bnovo.",
+  "permissions": [
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": ["https://online.bnovo.ru/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://online.bnovo.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
