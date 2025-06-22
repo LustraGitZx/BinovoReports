@@ -1,212 +1,231 @@
-var arrivals = [];
-var departures = [];
-var living = [];
-
-
-var REPORT_DATE = null;
-
-const button = document.querySelector("body > div.fab-panel");
-insertModalUI();
-function getBookingsUrl(arrivalFrom, arrivalTo, departureFrom, departureTo, page = 1) {
-    var baseUrl = `https://online.bnovo.ru/dashboard?status_ids=3,4,1,5&p=${page}`
-    if (arrivalFrom != null)
-        baseUrl += `&arrival_from=${arrivalFrom}`;
-    if (arrivalTo != null)
-        baseUrl += `&arrival_to=${arrivalTo}`;
-    if (departureFrom != null)
-        baseUrl += `&departure_from=${departureFrom}`;
-    if (departureTo != null)
-        baseUrl += `&departure_to=${departureTo}`;
-    baseUrl += `&advanced_search=2&c=36&page=${page}&order_by=create_date.desc`;
-    return baseUrl;
-}
-
-function requestBookings(url) {
-    return fetch(url, {
-            "headers": {
-            "accept": "application/json",
-            "sec-ch-ua": "\"Microsoft Edge\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-        },
-        "referrer": "https://online.bnovo.ru/dashboard?status_ids=3,4,1,5&arrival_from=20.05.2025&arrival_to=19.06.2025&departure_from=12.06.2025&departure_to=19.06.2025",
-        "body": null,
-        "method": "GET",
-        "mode": "cors",
-    })
-}
-
-function formatDate(date) {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0'); // Месяцы начинаются с 0
-    const year = date.getFullYear();
-    return `${day}.${month}.${year}`;
-}
-
-function processBookings(){
-    // Обработка данных бронирований
-    console.log("📦 Обработка бронирований...");
-    console.log("Прибытия:", arrivals);
-    console.log("Отправления:", departures);
-    console.log("Проживающие:", living);
-
-    renderPrintTable(arrivals, departures, living)
-
-    arrivals = [];
-    departures = [];
-    living = [];
-}
-
-function getBookings(arrivalFrom, arrivalTo, departureFrom, departureTo, page = 1, nexthandler = null, afterhandler = null) {
-    
-    _arrivalFrom = arrivalFrom ? formatDate(arrivalFrom) : null;
-    _arrivalTo = arrivalTo ? formatDate(arrivalTo) : null;
-    _departureFrom = departureFrom ? formatDate(departureFrom) : null;
-    _departureTo = departureTo ? formatDate(departureTo) : null;
-
-    var url = getBookingsUrl(_arrivalFrom, _arrivalTo, _departureFrom, _departureTo, page);
-    return requestBookings(url)
-        .then(response => response.json())
-        .then(data => {
-            var bookings = data.bookings;
-            nexthandler(bookings);
-            pages = data.pages.total_pages;
-            if (page < pages) {
-                waiter = setTimeout(() => {
-                    getBookings(arrivalFrom, arrivalTo, departureFrom, departureTo, page + 1, nexthandler, afterhandler);
-                }, 2000); // Задержка для асинхронной обработки
-            }
-            else{
-                if (afterhandler) {
-                    afterhandler(bookings);
-                }
-            }
-        });
-}
-
-function getArrivals(date) {
-    getBookings(date, date, null, null, 1, (bookings) => {
-        arrivals = arrivals.concat(bookings);
-        console.log("📦 Прибытия получены:", arrivals);
-    }, () => {
-        getBookings(null, null, date, date, 1, (bookings) => {
-            departures= departures.concat(bookings);
-            console.log("📦 Отправления получены:", departures);
-        }, () => {
-
-            let monthAgo = new Date(date);
-            monthAgo.setMonth(date.getMonth() - 1);
-
-            let monthForward = new Date(date);
-            monthForward.setMonth(date.getMonth() + 1);
-
-            let tomorrow = new Date(date);
-            tomorrow.setDate(date.getDate() + 1);
-
-            let yesterday = new Date(date);
-            yesterday.setDate(date.getDate() - 1);
-
-            getBookings(monthAgo, yesterday, tomorrow, monthForward, 1, (bookings) => {
-                living = living.concat(bookings);
-                console.log("📦 Проживающие получены:", living);
-            }, () => processBookings());
-        });
-    });
-}
-
-
-if (button) {
-    href = button.querySelector('a');
-    href.removeAttribute('href');
-    href.setAttribute('data-pt-title', 'Отчеты');
-    href.classList.remove('protip');
-    href.innerHTML = '📄';
-
-    button.addEventListener('click', function() {
-        console.log("🔍 Получение отчета...");
-        var tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        showDateModal();
-    });
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initialize);
 } else {
-    console.error("❌ Старая кнопка не найдена, проверьте селектор!");
+  initialize();
 }
-const roomOrder = [
+
+function initialize(){
+  const button = document.querySelector("body > div.fab-panel");
+    if (button) setupReportButton(button);
+    insertModalUI();
+}
+
+function setupReportButton(button) {
+  const href = button.querySelector("a");
+  href.removeAttribute("href");
+  href.setAttribute("data-pt-title", "Отчеты");
+  href.classList.remove("protip");
+  href.innerHTML = "📄";
+
+  button.addEventListener("click", () => {
+    showDateModal();
+  });
+}
+
+function getFormattedDate(date) {
+  return date ? date.toLocaleDateString("ru-RU").split(".").join(".") : null;
+}
+
+function getBookingsUrl({ arrivalFrom, arrivalTo, departureFrom, departureTo, page = 1 }) {
+  if (arrivalFrom) arrivalFrom = getFormattedDate(arrivalFrom);
+  if (arrivalTo) arrivalTo = getFormattedDate(arrivalTo);
+  if (departureFrom) departureFrom = getFormattedDate(departureFrom);
+  if (departureTo) departureTo = getFormattedDate(departureTo);
+
+  const params = new URLSearchParams({
+    status_ids: "3,4,1,5",
+    advanced_search: "2",
+    c: "36",
+    order_by: "create_date.desc",
+    page,
+  });
+
+  if (arrivalFrom) params.append("arrival_from", arrivalFrom);
+  if (arrivalTo) params.append("arrival_to", arrivalTo);
+  if (departureFrom) params.append("departure_from", departureFrom);
+  if (departureTo) params.append("departure_to", departureTo);
+
+  return `https://online.bnovo.ru/dashboard?${params.toString()}`;
+}
+
+function fetchBookings(url) {
+  return fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+      "sec-ch-ua": '"Microsoft Edge";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+    },
+    mode: "cors",
+    referrer: "https://online.bnovo.ru/dashboard",
+  }).then(res => res.json());
+}
+
+async function getBookings(params) {
+  let page = 1, totalPages = 1;
+  let bookings = [];
+
+  while (page <= totalPages) {
+    const url = getBookingsUrl({ ...params, page });
+    try {
+      const data = await fetchBookings(url);
+      totalPages = data.pages.total_pages;
+      bookings.push(...data.bookings);
+    } catch (err) {
+      console.error("❌ Ошибка загрузки:", err);
+      break;
+    }
+    page++;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  return bookings;
+}
+
+async function getAllBookings(reportDate) {
+  const monthAgo = new Date(reportDate);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+  const monthForward = new Date(reportDate);
+  monthForward.setMonth(monthForward.getMonth() + 1);
+
+  const tomorrow = new Date(reportDate);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const yesterday = new Date(reportDate);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const living = await getBookings({
+    arrivalFrom: monthAgo,
+    arrivalTo: yesterday,
+    departureFrom: tomorrow,
+    departureTo: monthForward
+  });
+
+  console.log("Живут:", living);
+
+  const arrivals = await getBookings({
+    arrivalFrom: reportDate,
+    arrivalTo: reportDate,
+    departureFrom: null,
+    departureTo: null
+  });
+
+  const departures = await getBookings({
+    arrivalFrom: null,
+    arrivalTo: null,
+    departureFrom: reportDate,
+    departureTo: reportDate
+  });
+
+  return [arrivals, departures, living];
+}
+
+
+function createTable(reportDate, arr, dep, liv) {
+  const table = document.createElement("table");
+  table.id = "reportTable";
+
+  const thead = document.createElement("thead");
+
+  const headerRow = document.createElement("tr");
+  ["Номер комнаты", "Отъезд", "Заезд", "Живут", "Примечание"].forEach(text => {
+    const th = document.createElement("th");
+    th.textContent = text;
+    headerRow.appendChild(th);
+  });
+
+  const tbody = document.createElement("tbody");
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+  table.appendChild(tbody);
+
+  
+
+  const roomOrder = [
   "201","202","203","204","301","302","303","304","305","307",
   "312","313","314","315","316","317","306","308","309","310","311",
   "401","402","403","404","405","406","407","412","413","414","415",
   "416","417","418","420","408","409","410","411","419",
   "510","501","502","503","504","505","506","507","508","509",
-  "511","512","513","514","515"
-];
+  "511","512","513","514","515"];
+  roomOrder.forEach(room => {
+    const roomCell = document.createElement("td");
+    roomCell.textContent = room;
 
-function arrivalCell(room) {
-  const guest = arrivals.find(b => b.current_room === room);
-  if (!guest) return "";
-  if (!guest.extra) return "?";
+    const depCell = document.createElement("td");
+    depCell.textContent = "";
+    if (dep.some(booking => booking.current_room === room))
+      depCell.textContent = "Выезд";
+    
 
-  const adults = guest.extra.adults || 0;
-  const children = guest.extra.children || 0;
-  const bedVariant = guest.extra.bed_variant;
+    const arrCell = document.createElement("td");
+    arrCell.textContent = "";
+    let guest = arr.find(booking => booking.current_room === room);
+    if (guest) {
+      const adults = guest.extra.adults || 0;
+      const children = guest.extra.children || 0;
+      const bedVariant = guest.extra.bed_variant || 0;
 
-  if (adults === 0 && children === 0) return "?";
+      const parts = [];
+      parts.push(`${adults + children} чел.`);
+      parts.push(bedVariant === 1 ? "/1 кр." : bedVariant === 2 ? "/2 кр." : "");
+      arrCell.textContent = parts.join(" ");
+    }
 
-  const parts = [];
-  if (adults > 0) parts.push(`${adults} вз.`);
-  if (children > 0) parts.push(`${children} дет.`);
+    const noteCell = document.createElement("td");
+    noteCell.textContent = "";
+    const livCell = document.createElement("td");
+    livCell.textContent = "";
+    guest = liv.find(booking => booking.current_room == room);
+    if (guest) {
+      livCell.textContent = "Живут";
 
-  if (bedVariant === 1) {
-    parts.push("/1 кр.");
-  } else if (bedVariant === 2) {
-    parts.push("/2 кр.");
+      const arrDate = new Date(guest.arrival);
+      const depDate = new Date(guest.departure);
+      arrDate.setHours(0, 0, 0, 0);
+      depDate.setHours(0, 0, 0, 0);
+
+      const stayLength = (depDate - arrDate) / (1000 * 60 * 60 * 24);
+      if (stayLength >= 5){
+        if (reportDate.getTime() != depDate.getTime()) {
+            const dayIndex = (reportDate - arrDate) / (1000 * 60 * 60 * 24) + 1;
+            if (dayIndex % 4 === 0) {
+              noteCell.textContent = "Смена";
+            }
+      }
+    }
   }
 
-  return parts.join(" ");
+    const row = document.createElement("tr");
+    row.appendChild(roomCell);
+    row.appendChild(depCell);
+    row.appendChild(arrCell);
+    row.appendChild(livCell);
+    row.appendChild(noteCell);
+
+    tbody.appendChild(row);
+
+  });
+
+  return table
 }
 
-function departureCell(room) {
-  return departures.some(b => b.current_room === room) ? "➕" : "";
-}
+async function printReport(reportDate) {
+  const bookings = await getAllBookings(reportDate);
+  const table = createTable(reportDate, ...bookings);
 
-function livingCell(room) {
-  return living.some(b => b.current_room === room) ? "➕" : "";
-}
-
-function noteCell(room) {
-  const guest = living.find(b => b.current_room === room);
-  if (!guest || !guest.arrival || !guest.departure) return "";
-
-  const arrival = new Date(guest.arrival);
-  const departure = new Date(guest.departure);
-  const today = new Date();
-
-  arrival.setHours(0, 0, 0, 0);
-  departure.setHours(0, 0, 0, 0);
-  today.setHours(0, 0, 0, 0);
-
-  const stayLength = (departure - arrival) / (1000 * 60 * 60 * 24);
-  if (stayLength < 5) return "";
-
-  const dayIndex = (today - arrival) / (1000 * 60 * 60 * 24) + 1;
-  if (today.getTime() === departure.getTime()) return "";
-
-  if (dayIndex > 0 && dayIndex % 4 === 0 && today < departure) {
-    return "Смена";
-  }
-
-  return "";
-}
-
-function renderPrintTable(arrivals, departures, living) {
-  const old = document.getElementById("printArea");
-  if (old) old.remove();
-
-  const printArea = document.createElement("div");
+  let printArea = document.getElementById("printArea");
+  if (printArea) printArea.remove();
+  printArea = document.createElement("div");
   printArea.id = "printArea";
 
-  const styleTag = document.createElement("style");
-  styleTag.textContent = `
-    #printArea { display: none; }
+  printArea.appendChild(table);
+
+  const style = document.createElement("style");
+  style.textContent = `
+  #printArea { display: none; }
     @media print {
       #printArea { display: block; padding: 20px; }
       body *:not(#printArea):not(#printArea *) {
@@ -219,48 +238,20 @@ function renderPrintTable(arrivals, departures, living) {
         font-size: 14px;
       }
       #printArea th, #printArea td {
-        border: 1px solid #333;
+        border: 1px solid #000;
         padding: 0px;
         text-align: center;
       }
       #printArea th {
-        background: #f0f0f0;
+        background: #FFFFFF;
       }
-    }
-  `;
-  document.head.appendChild(styleTag);
+    }`;
 
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  thead.innerHTML = `
-    <tr>
-      <th>Номер комнаты</th>
-      <th>Отъезд</th>
-      <th>Заезд</th>
-      <th>Живут</th>
-      <th>Примечание</th>
-    </tr>`;
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-
-  roomOrder.forEach(room => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${room}</td>
-      <td>${departureCell(room)}</td>
-      <td>${arrivalCell(room)}</td>
-      <td>${livingCell(room)}</td>
-      <td>${noteCell(room)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  table.appendChild(tbody);
-  printArea.appendChild(table);
+  printArea.appendChild(style);
   document.body.appendChild(printArea);
+  closeDateModal();
 
-  window.print();
+    window.print();
 
   window.onafterprint = () => {
     const cleanup = document.getElementById("printArea");
@@ -269,25 +260,48 @@ function renderPrintTable(arrivals, departures, living) {
 }
 
 
-// Добавим модальное окно и кнопку через JS
 function insertModalUI() {
-  const modalHTML = `
-    <div id="dateModal" style="
-      display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
-      background:white; border:1px solid #ccc; padding:20px; z-index:10000;
-      box-shadow:0 0 10px rgba(0,0,0,0.3); font-family:sans-serif;">
-      <label>Дата отчёта: <input type="date" id="selectedDate"></label>
-      <br><br>
-      <button id="printbtn">Печать</button>
-      <button id="closebtn">Отмена</button>
-    </div>
+  const modal = document.createElement("div");
+  modal.id = "dateModal";
+  modal.style.cssText = `
+    display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+    background:white; border:1px solid #ccc; padding:20px; z-index:10000;
+    box-shadow:0 0 10px rgba(0,0,0,0.3); font-family:sans-serif;
   `;
-  const container = document.createElement("div");
-  container.innerHTML = modalHTML;
-  document.body.prepend(container);
 
-  document.getElementById('printbtn').addEventListener('click', applySelectedDate);
-  document.getElementById('closebtn').addEventListener('click', closeDateModal);
+  const label = document.createElement("label");
+  label.textContent = "Дата отчёта: ";
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.id = "selectedDate";
+  label.appendChild(dateInput);
+
+  const br = document.createElement("br");
+  const br2 = document.createElement("br");
+
+  const printBtn = document.createElement("button");
+  printBtn.id = "printbtn";
+  printBtn.textContent = "Печать";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.id = "closebtn";
+  closeBtn.textContent = "Отмена";
+
+  modal.append(label, br, br2, printBtn, closeBtn);
+  document.body.prepend(modal);
+
+  printBtn.addEventListener("click", async () => {
+    const selectedDate = new Date(document.getElementById("selectedDate").value);
+    selectedDate.setHours(0, 0, 0, 0);
+    if (selectedDate) {
+      closeDateModal();
+      await printReport(selectedDate);
+    } else {
+      alert("Пожалуйста, выберите дату.");
+    }
+  });
+
+  closeBtn.addEventListener("click", closeDateModal);
 }
 
 function showDateModal() {
@@ -295,12 +309,4 @@ function showDateModal() {
 }
 function closeDateModal() {
   document.getElementById('dateModal').style.display = 'none';
-}
-function applySelectedDate() {
-  const value = document.getElementById('selectedDate').value;
-  if (value) {
-    REPORT_DATE = new Date(value);
-    closeDateModal();
-    getArrivals(REPORT_DATE);
-  }
 }
